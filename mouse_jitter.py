@@ -4,10 +4,10 @@ import math
 import time
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QSlider, QPushButton, QComboBox, QSystemTrayIcon, QMenu
+    QLabel, QSlider, QPushButton, QComboBox
 )
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer, QPoint
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer
+from PyQt6.QtGui import QFont
 from pynput import keyboard
 import pyautogui
 import json
@@ -20,11 +20,13 @@ pyautogui.FAILSAFE = False
 class GlobalHotKeyListener(QObject):
     """Listen for global hotkey presses"""
     hotkey_pressed = pyqtSignal()
+    key_recorded = pyqtSignal(str)
     
     def __init__(self, key_combo):
         super().__init__()
         self.key_combo = key_combo
         self.listener = None
+        self.recording = False
         self.start_listening()
     
     def start_listening(self):
@@ -35,14 +37,28 @@ class GlobalHotKeyListener(QObject):
     def on_press(self, key):
         """Handle key press"""
         try:
-            if hasattr(key, 'char'):
-                if key.char and key.char.lower() == self.key_combo.lower():
-                    self.hotkey_pressed.emit()
-            elif hasattr(key, 'name'):
-                if key.name == self.key_combo:
-                    self.hotkey_pressed.emit()
+            if self.recording:
+                # Record the key
+                if hasattr(key, 'char') and key.char:
+                    self.key_recorded.emit(key.char.lower())
+                    self.recording = False
+                elif hasattr(key, 'name'):
+                    self.key_recorded.emit(key.name)
+                    self.recording = False
+            else:
+                # Check for hotkey
+                if hasattr(key, 'char'):
+                    if key.char and key.char.lower() == self.key_combo.lower():
+                        self.hotkey_pressed.emit()
+                elif hasattr(key, 'name'):
+                    if key.name == self.key_combo:
+                        self.hotkey_pressed.emit()
         except AttributeError:
             pass
+    
+    def start_recording(self):
+        """Start recording a key"""
+        self.recording = True
     
     def stop_listening(self):
         """Stop listening"""
@@ -101,6 +117,8 @@ class JitterController(QObject):
                     jitter_x, jitter_y = self._zigzag_pattern()
                 elif self.pattern_type == "wave":
                     jitter_x, jitter_y = self._wave_pattern()
+                elif self.pattern_type == "diagonalrecoil":
+                    jitter_x, jitter_y = self._diagonal_recoil_pattern()
                 else:
                     jitter_x, jitter_y = self._circular_pattern()
                 
@@ -170,6 +188,18 @@ class JitterController(QObject):
         wave_x = int(self.jitter_intensity * 0.5 * math.cos(math.radians(self.angle * 2)))
         
         return wave_x, wave_y
+    
+    def _diagonal_recoil_pattern(self):
+        """DiagonalRecoil pattern - diagonal jitter for recoil control"""
+        angle_rad = math.radians(self.angle)
+        
+        # Create diagonal motion (up-right and down-right)
+        diagonal_factor = math.sin(math.radians(self.angle / 2))
+        
+        jitter_x = int(self.jitter_intensity * 1.3 * math.cos(angle_rad + math.pi / 4))
+        jitter_y = int(self.jitter_intensity * 1.3 * math.sin(angle_rad + math.pi / 4) * diagonal_factor)
+        
+        return jitter_x, jitter_y
 
 
 class MouseJitterApp(QMainWindow):
@@ -196,8 +226,8 @@ class MouseJitterApp(QMainWindow):
         
     def init_ui(self):
         """Initialize the user interface with gaming theme"""
-        self.setWindowTitle("APEX JITTER PRO - Advanced Edition")
-        self.setGeometry(100, 100, 800, 750)
+        self.setWindowTitle("APEX JITTER PRO")
+        self.setGeometry(100, 100, 500, 700)
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
         
         # Dark gaming theme
@@ -221,21 +251,25 @@ class MouseJitterApp(QMainWindow):
             }
             QSlider::groove:horizontal {
                 background-color: #1a1f3a;
-                height: 8px;
+                height: 10px;
                 border: 1px solid #00d9ff;
             }
             QSlider::handle:horizontal {
                 background-color: #00ff41;
-                width: 18px;
+                width: 20px;
                 margin: -5px 0;
-                border-radius: 9px;
+                border-radius: 10px;
+            }
+            QSlider::handle:horizontal:hover {
+                background-color: #00ffff;
             }
             QPushButton {
                 border: 2px solid #00d9ff;
                 border-radius: 8px;
                 font-weight: bold;
-                padding: 8px;
+                padding: 10px;
                 background-color: #1a1f3a;
+                color: #00d9ff;
             }
             QPushButton:hover {
                 background-color: #00d9ff;
@@ -246,128 +280,127 @@ class MouseJitterApp(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout()
-        main_layout.setSpacing(10)
-        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(20, 20, 20, 20)
         
         # Title
-        title = QLabel("⚡ APEX JITTER PRO ⚡")
+        title = QLabel("APEX JITTER PRO")
         title_font = QFont()
-        title_font.setPointSize(20)
+        title_font.setPointSize(18)
         title_font.setBold(True)
         title.setFont(title_font)
         title.setStyleSheet("color: #00ff41; text-align: center; padding: 10px;")
         main_layout.addWidget(title)
         
-        # Quick Presets Row
-        presets_label = QLabel("🎯 QUICK PRESETS")
-        presets_label.setStyleSheet("color: #ff006e; font-weight: bold; font-size: 11pt;")
-        main_layout.addWidget(presets_label)
+        # Enable Toggle
+        enable_layout = QHBoxLayout()
+        enable_label = QLabel("Enable")
+        enable_label.setStyleSheet("color: #00d9ff; font-weight: bold; font-size: 11pt;")
+        enable_layout.addWidget(enable_label)
+        enable_layout.addStretch()
         
-        presets_layout = QHBoxLayout()
-        for preset_name in self.PROFILES.keys():
-            preset_btn = QPushButton(preset_name)
-            preset_btn.setMaximumWidth(120)
-            preset_btn.clicked.connect(lambda checked, name=preset_name: self.apply_preset(name))
-            presets_layout.addWidget(preset_btn)
-        main_layout.addLayout(presets_layout)
+        self.enable_toggle = QPushButton("OFF")
+        self.enable_toggle.setMaximumWidth(60)
+        self.enable_toggle.setStyleSheet("background-color: #ff006e;")
+        self.enable_toggle.clicked.connect(self.toggle_enable)
+        enable_layout.addWidget(self.enable_toggle)
         
-        # Hotkey Section
-        hotkey_label = QLabel("🎮 HOTKEY SETTINGS")
-        hotkey_label.setStyleSheet("color: #ff006e; font-weight: bold; font-size: 11pt; padding-top: 10px;")
-        main_layout.addWidget(hotkey_label)
+        main_layout.addLayout(enable_layout)
         
-        hotkey_layout = QHBoxLayout()
-        key_label = QLabel("Activation Key:")
-        key_label.setMinimumWidth(100)
-        key_label.setStyleSheet("color: #00d9ff; font-weight: bold;")
-        hotkey_layout.addWidget(key_label)
+        # Activation Keybind
+        keybind_layout = QHBoxLayout()
+        keybind_label = QLabel("Activation Key(bind)")
+        keybind_label.setStyleSheet("color: #00d9ff; font-weight: bold; font-size: 11pt;")
+        keybind_layout.addWidget(keybind_label)
+        keybind_layout.addStretch()
         
-        self.hotkey_combo = QComboBox()
-        self.hotkey_combo.addItems(["x", "z", "c", "v", "space", "shift", "ctrl", "alt"])
-        self.hotkey_combo.setCurrentText(self.active_hotkey)
-        self.hotkey_combo.currentTextChanged.connect(self.change_hotkey)
-        hotkey_layout.addWidget(self.hotkey_combo)
+        self.keybind_display = QLabel("X")
+        self.keybind_display.setStyleSheet("color: #00ff41; font-weight: bold; font-size: 12pt; border: 1px solid #00d9ff; padding: 5px; min-width: 30px; text-align: center;")
+        keybind_layout.addWidget(self.keybind_display)
         
-        self.hotkey_status = QLabel("✓ Ready")
-        self.hotkey_status.setStyleSheet("color: #00ff41; font-weight: bold;")
-        hotkey_layout.addWidget(self.hotkey_status)
+        record_btn = QPushButton("Record")
+        record_btn.setMaximumWidth(80)
+        record_btn.clicked.connect(self.record_key)
+        keybind_layout.addWidget(record_btn)
         
-        main_layout.addLayout(hotkey_layout)
+        main_layout.addLayout(keybind_layout)
         
         # Pattern Selection
-        pattern_label = QLabel("🎯 PATTERN SELECTION")
-        pattern_label.setStyleSheet("color: #ff006e; font-weight: bold; font-size: 11pt; padding-top: 10px;")
-        main_layout.addWidget(pattern_label)
-        
         pattern_layout = QHBoxLayout()
-        pat_label = QLabel("Pattern:")
-        pat_label.setMinimumWidth(100)
-        pat_label.setStyleSheet("color: #00d9ff; font-weight: bold;")
-        pattern_layout.addWidget(pat_label)
+        pattern_label = QLabel("Pattern")
+        pattern_label.setStyleSheet("color: #00d9ff; font-weight: bold; font-size: 11pt;")
+        pattern_layout.addWidget(pattern_label)
         
         self.pattern_combo = QComboBox()
-        self.pattern_combo.addItems(["Circular", "Figure-8", "Spiral", "Zigzag", "Wave"])
+        self.pattern_combo.addItems(["Circular", "Figure-8", "Spiral", "Zigzag", "Wave", "DiagonalRecoil"])
         self.pattern_combo.currentTextChanged.connect(self.update_pattern)
         pattern_layout.addWidget(self.pattern_combo)
         
         main_layout.addLayout(pattern_layout)
         
-        # Intensity
-        intensity_label = QLabel("⚙️ INTENSITY & SPEED")
-        intensity_label.setStyleSheet("color: #ff006e; font-weight: bold; font-size: 11pt; padding-top: 10px;")
-        main_layout.addWidget(intensity_label)
+        # Strength Slider
+        strength_layout = QVBoxLayout()
+        strength_label = QLabel("Strength")
+        strength_label.setStyleSheet("color: #00d9ff; font-weight: bold; font-size: 11pt;")
+        strength_layout.addWidget(strength_label)
         
-        intensity_layout = QHBoxLayout()
-        int_label = QLabel("Intensity:")
-        int_label.setMinimumWidth(100)
-        int_label.setStyleSheet("color: #00d9ff; font-weight: bold;")
-        intensity_layout.addWidget(int_label)
+        strength_value_layout = QHBoxLayout()
+        self.strength_value = QLabel("15")
+        self.strength_value.setStyleSheet("color: #00ff41; font-weight: bold; font-size: 12pt;")
+        strength_value_layout.addWidget(self.strength_value)
+        strength_value_layout.addStretch()
+        strength_value_layout.addWidget(QLabel("60%"))
+        strength_layout.addLayout(strength_value_layout)
         
-        self.intensity_slider = QSlider(Qt.Orientation.Horizontal)
-        self.intensity_slider.setMinimum(1)
-        self.intensity_slider.setMaximum(60)
-        self.intensity_slider.setValue(15)
-        self.intensity_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.intensity_slider.setTickInterval(5)
-        self.intensity_slider.valueChanged.connect(self.update_intensity)
-        intensity_layout.addWidget(self.intensity_slider)
+        self.strength_slider = QSlider(Qt.Orientation.Horizontal)
+        self.strength_slider.setMinimum(1)
+        self.strength_slider.setMaximum(60)
+        self.strength_slider.setValue(15)
+        self.strength_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.strength_slider.setTickInterval(5)
+        self.strength_slider.valueChanged.connect(self.update_intensity)
+        strength_layout.addWidget(self.strength_slider)
         
-        self.intensity_value = QLabel("15")
-        self.intensity_value.setMinimumWidth(50)
-        self.intensity_value.setStyleSheet("color: #00ff41; font-weight: bold; font-size: 11pt;")
-        intensity_layout.addWidget(self.intensity_value)
+        main_layout.addLayout(strength_layout)
         
-        main_layout.addLayout(intensity_layout)
+        # Rate Slider
+        rate_layout = QVBoxLayout()
+        rate_label = QLabel("Rate")
+        rate_label.setStyleSheet("color: #00d9ff; font-weight: bold; font-size: 11pt;")
+        rate_layout.addWidget(rate_label)
         
-        # Speed
-        speed_layout = QHBoxLayout()
-        speed_label = QLabel("Speed:")
-        speed_label.setMinimumWidth(100)
-        speed_label.setStyleSheet("color: #00d9ff; font-weight: bold;")
-        speed_layout.addWidget(speed_label)
+        rate_value_layout = QHBoxLayout()
+        self.rate_value = QLabel("50")
+        self.rate_value.setStyleSheet("color: #00ff41; font-weight: bold; font-size: 12pt;")
+        rate_value_layout.addWidget(self.rate_value)
+        rate_value_layout.addStretch()
+        rate_value_layout.addWidget(QLabel("ms"))
+        rate_layout.addLayout(rate_value_layout)
         
-        self.speed_slider = QSlider(Qt.Orientation.Horizontal)
-        self.speed_slider.setMinimum(1)
-        self.speed_slider.setMaximum(100)
-        self.speed_slider.setValue(50)
-        self.speed_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.speed_slider.setTickInterval(10)
-        self.speed_slider.valueChanged.connect(self.update_speed)
-        speed_layout.addWidget(self.speed_slider)
+        self.rate_slider = QSlider(Qt.Orientation.Horizontal)
+        self.rate_slider.setMinimum(1)
+        self.rate_slider.setMaximum(100)
+        self.rate_slider.setValue(50)
+        self.rate_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.rate_slider.setTickInterval(10)
+        self.rate_slider.valueChanged.connect(self.update_speed)
+        rate_layout.addWidget(self.rate_slider)
         
-        self.speed_value = QLabel("50")
-        self.speed_value.setMinimumWidth(50)
-        self.speed_value.setStyleSheet("color: #00ff41; font-weight: bold; font-size: 11pt;")
-        speed_layout.addWidget(self.speed_value)
+        main_layout.addLayout(rate_layout)
         
-        main_layout.addLayout(speed_layout)
+        # Sensitivity Slider
+        sensitivity_layout = QVBoxLayout()
+        sensitivity_label = QLabel("Sensitivity")
+        sensitivity_label.setStyleSheet("color: #00d9ff; font-weight: bold; font-size: 11pt;")
+        sensitivity_layout.addWidget(sensitivity_label)
         
-        # Sensitivity Multiplier
-        sensitivity_layout = QHBoxLayout()
-        sens_label = QLabel("Sensitivity:")
-        sens_label.setMinimumWidth(100)
-        sens_label.setStyleSheet("color: #00d9ff; font-weight: bold;")
-        sensitivity_layout.addWidget(sens_label)
+        sensitivity_value_layout = QHBoxLayout()
+        self.sensitivity_value = QLabel("1.0x")
+        self.sensitivity_value.setStyleSheet("color: #00ff41; font-weight: bold; font-size: 12pt;")
+        sensitivity_value_layout.addWidget(self.sensitivity_value)
+        sensitivity_value_layout.addStretch()
+        sensitivity_value_layout.addWidget(QLabel("1.5x"))
+        sensitivity_layout.addLayout(sensitivity_value_layout)
         
         self.sensitivity_slider = QSlider(Qt.Orientation.Horizontal)
         self.sensitivity_slider.setMinimum(50)
@@ -378,17 +411,25 @@ class MouseJitterApp(QMainWindow):
         self.sensitivity_slider.valueChanged.connect(self.update_sensitivity)
         sensitivity_layout.addWidget(self.sensitivity_slider)
         
-        self.sensitivity_value = QLabel("1.0x")
-        self.sensitivity_value.setMinimumWidth(50)
-        self.sensitivity_value.setStyleSheet("color: #00ff41; font-weight: bold; font-size: 11pt;")
-        sensitivity_layout.addWidget(self.sensitivity_value)
-        
         main_layout.addLayout(sensitivity_layout)
         
-        # Status & Stats
-        self.status_label = QLabel("Status: INACTIVE")
+        # Quick Presets
+        presets_label = QLabel("Presets")
+        presets_label.setStyleSheet("color: #00d9ff; font-weight: bold; font-size: 11pt; padding-top: 10px;")
+        main_layout.addWidget(presets_label)
+        
+        presets_layout = QHBoxLayout()
+        for preset_name in self.PROFILES.keys():
+            preset_btn = QPushButton(preset_name)
+            preset_btn.setMaximumWidth(90)
+            preset_btn.clicked.connect(lambda checked, name=preset_name: self.apply_preset(name))
+            presets_layout.addWidget(preset_btn)
+        main_layout.addLayout(presets_layout)
+        
+        # Status
+        self.status_label = QLabel("INACTIVE")
         status_font = QFont()
-        status_font.setPointSize(13)
+        status_font.setPointSize(12)
         status_font.setBold(True)
         self.status_label.setFont(status_font)
         self.status_label.setStyleSheet("color: #ff006e; padding: 12px; text-align: center;")
@@ -401,44 +442,52 @@ class MouseJitterApp(QMainWindow):
         # Control Buttons
         button_layout = QHBoxLayout()
         
-        self.start_button = QPushButton("▶ START")
+        self.start_button = QPushButton("Start")
         self.start_button.clicked.connect(self.start_jitter)
-        self.start_button.setMinimumHeight(45)
+        self.start_button.setMinimumHeight(40)
         self.start_button.setStyleSheet("background-color: #00ff41; color: #0a0e27; border: 2px solid #00ff41;")
         button_layout.addWidget(self.start_button)
         
-        self.stop_button = QPushButton("⏹ STOP")
+        self.stop_button = QPushButton("Stop")
         self.stop_button.clicked.connect(self.stop_jitter)
-        self.stop_button.setMinimumHeight(45)
+        self.stop_button.setMinimumHeight(40)
         self.stop_button.setStyleSheet("background-color: #ff006e; color: #fff;")
         self.stop_button.setEnabled(False)
         button_layout.addWidget(self.stop_button)
         
-        reset_button = QPushButton("⟲ RESET")
+        reset_button = QPushButton("Reset")
         reset_button.clicked.connect(self.reset_settings)
-        reset_button.setMinimumHeight(45)
+        reset_button.setMinimumHeight(40)
         reset_button.setStyleSheet("background-color: #ffaa00; color: #0a0e27; border: 2px solid #ffaa00;")
         button_layout.addWidget(reset_button)
         
         main_layout.addLayout(button_layout)
         
-        # Safety Info
-        safety_label = QLabel("⚠️  Press bound key to toggle | Always-on-top enabled")
-        safety_font = QFont()
-        safety_font.setPointSize(9)
-        safety_label.setFont(safety_font)
-        safety_label.setStyleSheet("color: #ffaa00; text-align: center; padding: 8px;")
-        main_layout.addWidget(safety_label)
-        
         main_layout.addStretch()
         central_widget.setLayout(main_layout)
+    
+    def toggle_enable(self):
+        """Toggle enable/disable"""
+        if self.enable_toggle.text() == "OFF":
+            self.enable_toggle.setText("ON")
+            self.enable_toggle.setStyleSheet("background-color: #00ff41; color: #0a0e27;")
+        else:
+            self.enable_toggle.setText("OFF")
+            self.enable_toggle.setStyleSheet("background-color: #ff006e;")
+    
+    def record_key(self):
+        """Start recording a key"""
+        self.keybind_display.setText("...")
+        self.keybind_display.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 12pt; border: 1px solid #ffaa00; padding: 5px; min-width: 30px; text-align: center;")
+        if self.hotkey_listener:
+            self.hotkey_listener.start_recording()
     
     def apply_preset(self, preset_name):
         """Apply a preset configuration"""
         if preset_name in self.PROFILES:
             preset = self.PROFILES[preset_name]
-            self.intensity_slider.setValue(preset["intensity"])
-            self.speed_slider.setValue(preset["speed"])
+            self.strength_slider.setValue(preset["intensity"])
+            self.rate_slider.setValue(preset["speed"])
             self.pattern_combo.setCurrentText(preset["pattern"])
             sens_value = int(preset["sensitivity"] * 100)
             self.sensitivity_slider.setValue(sens_value)
@@ -448,6 +497,16 @@ class MouseJitterApp(QMainWindow):
         """Setup global hotkey listener"""
         self.hotkey_listener = GlobalHotKeyListener(self.active_hotkey)
         self.hotkey_listener.hotkey_pressed.connect(self.toggle_jitter)
+        self.hotkey_listener.key_recorded.connect(self.on_key_recorded)
+    
+    def on_key_recorded(self, key):
+        """Handle recorded key"""
+        self.active_hotkey = key
+        self.keybind_display.setText(key.upper())
+        self.keybind_display.setStyleSheet("color: #00ff41; font-weight: bold; font-size: 12pt; border: 1px solid #00d9ff; padding: 5px; min-width: 30px; text-align: center;")
+        if self.hotkey_listener:
+            self.hotkey_listener.change_key(key)
+        self.save_settings()
     
     def toggle_jitter(self):
         """Toggle jitter on/off with hotkey"""
@@ -456,15 +515,6 @@ class MouseJitterApp(QMainWindow):
         else:
             self.start_jitter()
     
-    def change_hotkey(self, new_key):
-        """Change the hotkey binding"""
-        self.active_hotkey = new_key
-        if self.hotkey_listener:
-            self.hotkey_listener.stop_listening()
-        self.setup_hotkey()
-        self.hotkey_status.setText(f"✓ '{new_key.upper()}'")
-        self.save_settings()
-    
     def update_pattern(self, pattern_name):
         """Update jitter pattern type"""
         pattern_map = {
@@ -472,7 +522,8 @@ class MouseJitterApp(QMainWindow):
             "Figure-8": "figure8",
             "Spiral": "spiral",
             "Zigzag": "zigzag",
-            "Wave": "wave"
+            "Wave": "wave",
+            "DiagonalRecoil": "diagonalrecoil"
         }
         self.controller.pattern_type = pattern_map.get(pattern_name, "circular")
         self.controller.angle = 0
@@ -481,13 +532,13 @@ class MouseJitterApp(QMainWindow):
     def update_intensity(self, value):
         """Update jitter intensity"""
         self.controller.jitter_intensity = value
-        self.intensity_value.setText(str(value))
+        self.strength_value.setText(str(value))
         self.save_settings()
     
     def update_speed(self, value):
         """Update jitter speed"""
         self.controller.jitter_speed = value
-        self.speed_value.setText(str(value))
+        self.rate_value.setText(str(value))
         self.save_settings()
     
     def update_sensitivity(self, value):
@@ -505,7 +556,7 @@ class MouseJitterApp(QMainWindow):
     def start_jitter(self):
         """Start jitter"""
         self.controller.start_jitter()
-        self.status_label.setText("Status: ACTIVE ⚡")
+        self.status_label.setText("ACTIVE ⚡")
         self.status_label.setStyleSheet("color: #00ff41; padding: 12px; text-align: center; font-weight: bold;")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -515,7 +566,7 @@ class MouseJitterApp(QMainWindow):
     def stop_jitter(self):
         """Stop jitter"""
         self.controller.stop_jitter()
-        self.status_label.setText("Status: INACTIVE")
+        self.status_label.setText("INACTIVE")
         self.status_label.setStyleSheet("color: #ff006e; padding: 12px; text-align: center; font-weight: bold;")
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
@@ -526,11 +577,14 @@ class MouseJitterApp(QMainWindow):
     
     def reset_settings(self):
         """Reset all settings to default"""
-        self.intensity_slider.setValue(15)
-        self.speed_slider.setValue(50)
+        self.strength_slider.setValue(15)
+        self.rate_slider.setValue(50)
         self.sensitivity_slider.setValue(100)
         self.pattern_combo.setCurrentText("Circular")
-        self.hotkey_combo.setCurrentText("x")
+        self.active_hotkey = "x"
+        self.keybind_display.setText("X")
+        if self.hotkey_listener:
+            self.hotkey_listener.change_key("x")
         if self.controller.is_running:
             self.stop_jitter()
         self.save_settings()
